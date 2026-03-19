@@ -38,6 +38,14 @@ A nostalgic blend of **premium outlaw mystique**: royal colors, vintage textures
 2. **Share:** Short, secure link generated
 3. **View & Destroy:** Vault self-destructs after first access
 
+## Architecture & Security (Vercel & PostgreSQL)
+This repository is fully configured for zero-configuration serverless deployments on **Vercel** using **PostgreSQL** (e.g., CockroachDB, Neon). It incorporates several robust architectural safeguards:
+- **Zero-Knowledge Architecture:** The decryption key (`accessToken`) never leaves the browser URL fragment (`#token`). The server only stores AES-256 encrypted blobs and is blind to the raw data.
+- **Race Condition Prevention:** Implements Atomic SQL `UPDATE...RETURNING` queries to prevent Time-of-Check to Time-of-Use (TOCTOU) concurrent access vulnerabilities.
+- **Anti-Brute Force:** The vault is permanently destroyed immediately upon 3 incorrect PIN attempts.
+- **DDoS Mitigation:** Vault creation payloads are capped at 10MB, and endpoints are rate-limited (`express-rate-limit`) to prevent free-tier storage exhaustion.
+- **Automated Garbage Collection:** The database automatically and lazily cleans up globally expired records in the background without requiring a dedicated cron job.
+
 ## Team Members
 
 |Tirth A Patel        |

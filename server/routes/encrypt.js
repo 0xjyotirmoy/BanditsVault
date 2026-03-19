@@ -1,48 +1,37 @@
 const express = require('express');
-const fs = require('fs');
-const path = require('path');
 const { generateAccessToken } = require('../utils/neatbandit');
+const { pool } = require('../utils/db');
 
 const router = express.Router();
-const dbPath = path.join(__dirname, '../db.json');
 
-function loadDB() {
-  if (!fs.existsSync(dbPath)) {
-    fs.writeFileSync(dbPath, JSON.stringify({ vaults: {} }));
-  }
-  return JSON.parse(fs.readFileSync(dbPath, 'utf8'));
-}
-
-function saveDB(data) {
-  fs.writeFileSync(dbPath, JSON.stringify(data, null, 2));
-}
-
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   const { encryptedContent, encryptedKeyBlob, blobIv, contentType, pin, expiryHours, destructTimer } = req.body;
   
   const vaultId = generateAccessToken(8);
   const accessToken = generateAccessToken(12);
   const expiryTime = Date.now() + (expiryHours * 60 * 60 * 1000);
   
-  const db = loadDB();
-  db.vaults[vaultId] = {
-    encryptedContent,
-    encryptedKeyBlob,
-    blobIv,
-    contentType,
-    pin: pin || null,
-    expiryTime,
-    destructTimer: destructTimer || 120,
-    accessed: false,
-    createdAt: Date.now()
-  };
-  saveDB(db);
+  // Lazy Database Cleanup: Delete expired vaults in the background (~5% probability to reduce DB load)
+  if (Math.random() < 0.05) {
+    pool.query('DELETE FROM vaults WHERE expiry_time < $1', [Date.now()]).catch(err => console.error('Cleanup error:', err));
+  }
   
-  res.json({ 
-    vaultId, 
-    accessToken,
-    link: `${req.protocol}://${req.get('host')}/vault/${vaultId}#${accessToken}`
-  });
+  try {
+    await pool.query(
+      `INSERT INTO vaults (vault_id, encrypted_content, encrypted_key_blob, blob_iv, content_type, pin, expiry_time, destruct_timer, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [vaultId, encryptedContent, encryptedKeyBlob, blobIv, contentType, pin || null, expiryTime, destructTimer || 120, Date.now()]
+    );
+    
+    res.json({ 
+      vaultId, 
+      accessToken,
+      link: `${req.protocol}://${req.get('host')}/vault/${vaultId}#${accessToken}`
+    });
+  } catch (err) {
+    console.error('Error creating vault:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 module.exports = router;
